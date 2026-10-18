@@ -149,6 +149,60 @@ router.get('/databases/:db/tables/:schema/:table/indexes', async (req, res) => {
   }
 });
 
+router.get('/databases/:db/objects/:schema/:name/definition', async (req, res) => {
+  try {
+    const pool = getPool();
+    const { db, schema, name } = req.params;
+    const dbEsc = escapeIdentifier(db);
+    const result = await pool.request()
+      .input('schema', sql.VarChar, schema)
+      .input('name', sql.VarChar, name)
+      .query(`
+        SELECT m.definition
+        FROM ${dbEsc}.sys.sql_modules m
+        JOIN ${dbEsc}.sys.objects o ON m.object_id = o.object_id
+        JOIN ${dbEsc}.sys.schemas s ON o.schema_id = s.schema_id
+        WHERE s.name = @schema AND o.name = @name
+          AND o.type IN ('V', 'P', 'FN', 'IF', 'TF')
+      `);
+
+    if (!result.recordset.length) {
+      return res.status(404).json({ error: `No view, procedure, or function named '${schema}.${name}' was found.` });
+    }
+
+    res.json({ definition: result.recordset[0].definition });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/databases/:db/modules/:schema/:name', async (req, res) => {
+  try {
+    const pool = getPool();
+    const { db, schema, name } = req.params;
+    const dbEsc = escapeIdentifier(db);
+    const result = await pool.request()
+      .input('schema', sql.VarChar, schema)
+      .input('name', sql.VarChar, name)
+      .query(`
+        SELECT m.definition
+        FROM ${dbEsc}.sys.sql_modules m
+        JOIN ${dbEsc}.sys.objects o ON m.object_id = o.object_id
+        JOIN ${dbEsc}.sys.schemas s ON o.schema_id = s.schema_id
+        WHERE s.name = @schema AND o.name = @name
+          AND o.type IN ('V', 'P', 'FN', 'IF', 'TF')
+      `);
+
+    if (!result.recordset.length) {
+      return res.status(404).json({ error: `No view, procedure, or function found for [${schema}].[${name}]` });
+    }
+
+    res.json({ definition: result.recordset[0].definition });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/databases', async (req, res) => {
   try {
     const { name } = req.body;

@@ -197,6 +197,7 @@ import { ref, reactive, watch, nextTick } from 'vue';
 import { useConnectionStore } from '../../stores/connection';
 import { useExplorerStore } from '../../stores/explorer';
 import { useQueryTabsStore } from '../../stores/queryTabs';
+import { api } from '../../api/client';
 import ObjectExplorerNode from './ObjectExplorerNode.vue';
 import ContextMenu from '../common/ContextMenu.vue';
 import CreateDatabaseDialog from '../common/CreateDatabaseDialog.vue';
@@ -257,7 +258,9 @@ function buildMenuItems(type, label, data) {
         { label: 'Select Top 1000 Rows', icon: '&#9654;', action: 'selectTop1000', data: { ...data, top: 1000 } },
         { label: 'Edit Top 200 Rows', icon: '&#9998;', action: 'editTop200', data: { ...data, top: 200 } },
         { separator: true },
-        { label: 'Script as CREATE', icon: '&#128196;', action: 'scriptCreate', data },
+        { label: 'Script as INSERT', icon: '&#128196;', action: 'scriptCreate', data },
+        { label: 'Script as UPDATE', icon: '&#128196;', action: 'scriptUpdate', data },
+        { label: 'Script as DELETE', icon: '&#128196;', action: 'scriptDelete', data },
         { label: 'Script as SELECT', icon: '&#128196;', action: 'scriptSelect', data },
         { separator: true },
         { label: 'Copy Name', icon: '&#128203;', action: 'copyName', data: { copyText: fullName } }
@@ -308,28 +311,132 @@ function buildMenuItems(type, label, data) {
   }
 }
 
-function handleContextAction(item) {
+async function buildSelectScript(db, schema, table, top) {
+  const from = `FROM [${db}].[${schema}].[${table}]`;
+  let columns = null;
+
+  try {
+    const data = await api.getColumns(db, schema, table);
+    columns = data.columns?.map(c => c.name) || [];
+  } catch {
+    columns = null;
+  }
+
+  const select = top ? `SELECT TOP (${top}) ` : 'SELECT ';
+
+  if (!columns || columns.length === 0) {
+    return `${select}*\n  ${from}`;
+  }
+
+  const first = `[${columns[0]}]`;
+  const rest = columns.slice(1).map(c => `\n      ,[${c}]`).join('');
+  return `${select}${first}${rest}\n  ${from}`;
+}
+
+async function buildInsertScript(db, schema, table) {
+  const target = `[${db}].[${schema}].[${table}]`;
+  try {
+    const data = await api.getColumns(db, schema, table);
+    const columns = (data.columns || []).map(c => c.name);
+    if (!columns.length) {
+      throw new Error('Table has no columns');
+    }
+    const columnList = columns.map(c => `[${c}]`).join(', ');
+    const placeholders = columns.map(c => `<${c}>`).join(', ');
+    return `INSERT INTO ${target}\n    (${columnList})\nVALUES\n    (${placeholders});`;
+  } catch (err) {
+    return `-- Failed to generate INSERT script for ${target}\n-- ${err.message}`;
+  }
+}
+
+async function buildUpdateScript(db, schema, table) {
+  const target = `[${db}].[${schema}].[${table}]`;
+  try {
+    const data = await api.getColumns(db, schema, table);
+    const columns = data.columns || [];
+    if (!columns.length) {
+      throw new Error('Table has no columns');
+    }
+    let setCols = columns.filter(c => !c.isPrimaryKey && !c.identity);
+    if (!setCols.length) setCols = columns.filter(c => !c.identity);
+    if (!setCols.length) setCols = columns;
+    const keyCols = columns.filter(c => c.isPrimaryKey).map(c => c.name);
+    const whereCols = keyCols.length ? keyCols : columns.map(c => c.name);
+    const setLines = setCols
+      .map((c, i) => `${i === 0 ? 'SET ' : '    '}[${c.name}] = <${c.name}>`)
+      .join(',\n');
+    const where = whereCols.map(c => `[${c}] = <${c}>`).join(' AND ');
+    return `UPDATE ${target}\n${setLines}\nWHERE ${where};`;
+  } catch (err) {
+    return `-- Failed to generate UPDATE script for ${target}\n-- ${err.message}`;
+  }
+}
+
+async function buildDeleteScript(db, schema, table) {
+  const target = `[${db}].[${schema}].[${table}]`;
+  try {
+    const data = await api.getColumns(db, schema, table);
+    const columns = data.columns || [];
+    if (!columns.length) {
+      throw new Error('Table has no columns');
+    }
+    const keyCols = columns.filter(c => c.isPrimaryKey).map(c => c.name);
+    const whereCols = keyCols.length ? keyCols : columns.map(c => c.name);
+    const where = whereCols.map(c => `[${c}] = <${c}>`).join(' AND ');
+    return `DELETE FROM ${target}\nWHERE ${where};`;
+  } catch (err) {
+    return `-- Failed to generate DELETE script for ${target}\n-- ${err.message}`;
+  }
+}
+
+async function buildModuleScript(db, schema, name) {
+  const target = `[${db}].[${schema}].[${name}]`;
+  try {
+    const data = await api.getObjectDefinition(db, schema, name);
+    return data.definition;
+  } catch (err) {
+    return `-- Failed to retrieve definition for ${target}\n-- ${err.message}`;
+  }
+}
+
+async function handleContextAction(item) {
   const { action, data } = item;
 
   switch (action) {
     case 'selectTop1000': {
-      const sql = `SELECT TOP ${data.top} * FROM [${data.schema}].[${data.table}]`;
+      const sql = await buildSelectScript(data.db, data.schema, data.table, data.top);
       const tab = queryTabs.createTab(data.db, sql);
       queryTabs.executeQuery(tab.id);
       break;
     }
     case 'editTop200': {
-      const sql = `SELECT TOP ${data.top} * FROM [${data.schema}].[${data.table}]`;
+      const sql = await buildSelectScript(data.db, data.schema, data.table, data.top);
       const tab = queryTabs.createTab(data.db, sql);
       queryTabs.executeQuery(tab.id);
       break;
     }
     case 'scriptCreate': {
-      queryTabs.createTab(data.db, `-- Script as CREATE for [${data.schema}].[${data.table}]\n-- TODO: Implement backend endpoint to retrieve object definition`);
+      if (data.type === 'table') {
+        const sql = await buildInsertScript(data.db, data.schema, data.table);
+        queryTabs.createTab(data.db, sql);
+      } else {
+        const sql = await buildModuleScript(data.db, data.schema, data.table);
+        queryTabs.createTab(data.db, sql);
+      }
+      break;
+    }
+    case 'scriptUpdate': {
+      const sql = await buildUpdateScript(data.db, data.schema, data.table);
+      queryTabs.createTab(data.db, sql);
+      break;
+    }
+    case 'scriptDelete': {
+      const sql = await buildDeleteScript(data.db, data.schema, data.table);
+      queryTabs.createTab(data.db, sql);
       break;
     }
     case 'scriptSelect': {
-      const sql = `SELECT * FROM [${data.schema}].[${data.table}]`;
+      const sql = await buildSelectScript(data.db, data.schema, data.table, null);
       queryTabs.createTab(data.db, sql);
       break;
     }

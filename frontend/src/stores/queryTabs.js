@@ -6,6 +6,72 @@ import { useConnectionStore } from './connection';
 
 let tabCounter = 1;
 
+const SQL_IDENT = String.raw`(?:\[[^\]\r\n]+\]|[A-Za-z_@#$][\w$]*)`;
+
+function stripSqlNoise(sql) {
+  return sql.replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*|'(?:[^'\r\n]|'')*'/g, ' ');
+}
+
+function stripBrackets(part) {
+  const trimmed = part.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function detectTargetDatabase(sql) {
+  const text = stripSqlNoise(sql);
+
+  const useMatch = new RegExp(
+    String.raw`(?<!\.)\bUSE\s+(?:\[([^\]\r\n]+)\]|([A-Za-z_@#$][\w$]*))`,
+    'gi'
+  ).exec(text);
+  const chainMatch = new RegExp(
+    String.raw`${SQL_IDENT}(?:\s*\.\s*${SQL_IDENT})+`,
+    'gi'
+  ).exec(text);
+
+  const candidates = [];
+
+  if (useMatch) {
+    const db = (useMatch[1] || useMatch[2] || '').trim();
+    if (db && !db.startsWith('@')) {
+      candidates.push({ index: useMatch.index, db });
+    }
+  }
+
+  if (chainMatch) {
+    const parts = chainMatch[0].split('.').map(p => p.trim());
+    let db = null;
+    if (parts.length >= 4) {
+      db = stripBrackets(parts[1]);
+    } else if (parts.length === 3) {
+      db = stripBrackets(parts[0]);
+    }
+    if (db && !db.startsWith('@')) {
+      candidates.push({ index: chainMatch.index, db });
+    }
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.index - b.index);
+  return candidates[0].db;
+}
+
+function preferredResultTab(sql) {
+  const text = stripSqlNoise(sql);
+  const stmt = String.raw`(?:^|;|\))\s*`;
+
+  if (new RegExp(stmt + String.raw`\bSELECT\b`, 'i').test(text)) {
+    return 'results';
+  }
+  if (new RegExp(stmt + String.raw`\b(?:INSERT|UPDATE|DELETE)\b`, 'i').test(text)) {
+    return 'messages';
+  }
+  return 'results';
+}
+
 export const useQueryTabsStore = defineStore('queryTabs', () => {
   const tabs = ref([]);
   const activeTabId = ref(null);
@@ -78,10 +144,15 @@ export const useQueryTabsStore = defineStore('queryTabs', () => {
     const tab = tabs.value.find(t => t.id === id);
     if (!tab || !tab.sql.trim()) return;
 
+    const target = detectTargetDatabase(tab.sql);
+    if (target && target !== tab.database) {
+      tab.database = target;
+    }
+
     const executionId = crypto.randomUUID();
     tab.loading = true;
     tab.executionId = executionId;
-    tab.activeResultTab = 'results';
+    tab.activeResultTab = preferredResultTab(tab.sql);
 
     try {
       const result = await api.executeQuery(tab.database, tab.sql, executionId);
@@ -190,6 +261,11 @@ export const useQueryTabsStore = defineStore('queryTabs', () => {
   async function getExecutionPlan(id) {
     const tab = tabs.value.find(t => t.id === id);
     if (!tab || !tab.sql.trim()) return;
+
+    const target = detectTargetDatabase(tab.sql);
+    if (target && target !== tab.database) {
+      tab.database = target;
+    }
 
     const executionId = crypto.randomUUID();
     tab.loading = true;

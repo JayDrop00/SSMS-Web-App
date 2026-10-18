@@ -29,6 +29,8 @@ export const api = {
   getFunctions: (db) => request(`/databases/${db}/functions`),
   getColumns: (db, schema, table) => request(`/databases/${db}/tables/${schema}/${table}/columns`),
   getIndexes: (db, schema, table) => request(`/databases/${db}/tables/${schema}/${table}/indexes`),
+  getModuleDefinition: (db, schema, name) => request(`/databases/${db}/modules/${schema}/${name}`),
+  getObjectDefinition: (db, schema, name) => request(`/databases/${db}/objects/${schema}/${name}/definition`),
 
   executeQuery: (database, sql, executionId) => request('/query/execute', { method: 'POST', body: JSON.stringify({ database, sql, executionId }) }),
   cancelQuery: (executionId) => request('/query/cancel', { method: 'POST', body: JSON.stringify({ executionId }) }),
