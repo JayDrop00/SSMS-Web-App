@@ -141,9 +141,6 @@ const contextMenuItems = computed(() => {
 
   if (editable) {
     items.push({ label: 'Delete Row', icon: '&#128465;', action: 'deleteRow' });
-    if (contextMenu.cellIndex !== null && !isColumnLocked(resultSet, contextMenu.cellIndex)) {
-      items.push({ label: 'Set Cell to NULL', icon: '&#8709;', action: 'setNull' });
-    }
   }
 
   items.push({ label: 'Copy Row', icon: '&#128203;', action: 'copyRow' });
@@ -201,9 +198,6 @@ function handleContextAction(item) {
     case 'deleteRow':
       confirmDeleteRow();
       break;
-    case 'setNull':
-      setCellNull();
-      break;
     case 'copyRow':
       copyRowToClipboard();
       break;
@@ -237,17 +231,6 @@ function confirmDeleteRow() {
 async function executeDeleteRow(resultIndex, rowIndex) {
   confirmDialog.visible = false;
   const result = await queryTabs.deleteResultRow(queryTabs.activeTabId, resultIndex, rowIndex);
-  if (!result.ok) {
-    errorBanner.value = result.error;
-  }
-}
-
-async function setCellNull() {
-  const { resultIndex, rowIndex, cellIndex } = contextMenu;
-  if (cellIndex === null) return;
-  const resultSet = props.resultSets[resultIndex];
-  const columnName = resultSet.columns[cellIndex];
-  const result = await queryTabs.commitCellEdit(queryTabs.activeTabId, resultIndex, rowIndex, columnName, null);
   if (!result.ok) {
     errorBanner.value = result.error;
   }

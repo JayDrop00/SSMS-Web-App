@@ -6,6 +6,7 @@ export const useConnectionStore = defineStore('connection', () => {
   const connected = ref(false);
   const server = ref(null);
   const database = ref(null);
+  const currentUser = ref(null);
   const loading = ref(true);
   const error = ref(null);
 
@@ -17,6 +18,7 @@ export const useConnectionStore = defineStore('connection', () => {
       connected.value = data.connected;
       server.value = data.server;
       database.value = data.database;
+      currentUser.value = data.currentUser || null;
     } catch (err) {
       connected.value = false;
       error.value = err.message;
@@ -34,6 +36,7 @@ export const useConnectionStore = defineStore('connection', () => {
         connected.value = true;
         server.value = data.server;
         database.value = data.database;
+        if (data.currentUser) currentUser.value = data.currentUser;
         return true;
       } else {
         error.value = data.error;
@@ -63,5 +66,5 @@ export const useConnectionStore = defineStore('connection', () => {
     database.value = db;
   }
 
-  return { connected, server, database, loading, error, checkStatus, manualConnect, disconnect, setDatabase };
+  return { connected, server, database, currentUser, loading, error, checkStatus, manualConnect, disconnect, setDatabase };
 });

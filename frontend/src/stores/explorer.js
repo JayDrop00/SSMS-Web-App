@@ -17,6 +17,11 @@ export const useExplorerStore = defineStore('explorer', () => {
     }
   }
 
+  async function createDatabase(name) {
+    await api.createDatabase(name);
+    await loadDatabases();
+  }
+
   async function loadTables(db) {
     const key = `${db}/tables`;
     if (treeData.value[key]) return treeData.value[key];
@@ -126,7 +131,7 @@ export const useExplorerStore = defineStore('explorer', () => {
 
   return {
     databases, expandedNodes, loadingNodes, treeData,
-    loadDatabases, loadTables, loadViews, loadProcedures, loadFunctions,
+    loadDatabases, createDatabase, loadTables, loadViews, loadProcedures, loadFunctions,
     loadColumns, loadIndexes, reset, toggleNode, isExpanded, isLoading
   };
 });

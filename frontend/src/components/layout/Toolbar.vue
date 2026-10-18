@@ -7,6 +7,9 @@
     <button class="toolbar-btn" @click="newQuery" title="New Query">
       <span>&#128196;</span> New Query
     </button>
+    <button class="toolbar-btn" @click="showCreateDb = true" :disabled="!connection.connected" title="New Database">
+      <span>&#128451;</span> New Database
+    </button>
     <div class="toolbar-separator"></div>
     <button class="toolbar-btn" @click="execute" :disabled="!canExecute" title="Execute (F5)">
       <span>&#9654;</span> Execute
@@ -35,6 +38,11 @@
       @confirm="logout"
       @cancel="showLogoutConfirm = false"
     />
+    <CreateDatabaseDialog
+      :visible="showCreateDb"
+      @confirm="handleCreateDatabase"
+      @cancel="showCreateDb = false"
+    />
   </div>
 </template>
 
@@ -43,15 +51,19 @@ import { ref, computed } from 'vue';
 import { useConnectionStore } from '../../stores/connection';
 import { useQueryTabsStore } from '../../stores/queryTabs';
 import { useThemeStore } from '../../stores/theme';
+import { useExplorerStore } from '../../stores/explorer';
 import ConfirmDialog from '../common/ConfirmDialog.vue';
+import CreateDatabaseDialog from '../common/CreateDatabaseDialog.vue';
 
 defineEmits(['toggle-explorer']);
 
 const connection = useConnectionStore();
 const queryTabs = useQueryTabsStore();
 const themeStore = useThemeStore();
+const explorer = useExplorerStore();
 
 const showLogoutConfirm = ref(false);
+const showCreateDb = ref(false);
 
 const logoutMessage = computed(() => {
   let message = `Log out of '${connection.server}'?\n\nAll query tabs, results, and history will be closed.`;
@@ -64,6 +76,15 @@ const logoutMessage = computed(() => {
 async function logout() {
   showLogoutConfirm.value = false;
   await connection.disconnect();
+}
+
+async function handleCreateDatabase(name) {
+  try {
+    await explorer.createDatabase(name);
+    showCreateDb.value = false;
+  } catch (err) {
+    alert('Failed to create database: ' + err.message);
+  }
 }
 
 const currentDatabase = computed(() => queryTabs.activeTab?.database || connection.database);

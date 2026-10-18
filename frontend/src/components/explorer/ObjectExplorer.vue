@@ -7,6 +7,7 @@
         icon="server"
         :level="0"
         expandable
+        :nodeData="{ type: 'server' }"
         @contextmenu="handleContextMenu"
       >
         <template #children>
@@ -196,7 +197,6 @@ import { ref, reactive, watch, nextTick } from 'vue';
 import { useConnectionStore } from '../../stores/connection';
 import { useExplorerStore } from '../../stores/explorer';
 import { useQueryTabsStore } from '../../stores/queryTabs';
-import { api } from '../../api/client';
 import ObjectExplorerNode from './ObjectExplorerNode.vue';
 import ContextMenu from '../common/ContextMenu.vue';
 import CreateDatabaseDialog from '../common/CreateDatabaseDialog.vue';
@@ -356,9 +356,8 @@ function closeContextMenu() {
 
 async function handleCreateDatabase(name) {
   try {
-    await api.createDatabase(name);
+    await explorer.createDatabase(name);
     createDbDialog.visible = false;
-    await explorer.loadDatabases();
   } catch (err) {
     alert('Failed to create database: ' + err.message);
   }
